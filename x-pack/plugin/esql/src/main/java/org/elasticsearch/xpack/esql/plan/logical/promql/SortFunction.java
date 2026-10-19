@@ -26,6 +26,8 @@ import org.elasticsearch.xpack.esql.session.Configuration;
 
 import java.util.List;
 
+import static org.elasticsearch.xpack.esql.plan.logical.promql.TranslationContext.supportTimeSeriesMetadataType;
+
 /**
  * PromQL {@code sort} / {@code sort_desc}: identity-preserving ordering of an instant vector by sample value.
  * Histogram dropping is applied at translation (see {@link #translate}); the actual {@code OrderBy} is injected above
@@ -69,6 +71,13 @@ public final class SortFunction extends PromqlFunctionCall implements ResultOrde
     public IntermediateResult translate(TranslationContext context) {
         IntermediateResult result = context.translate(child());
         if (result.value().resolved() && result.value().dataType().isHistogram()) {
+            if (supportTimeSeriesMetadataType(context)) {
+                if (result.kind().afterInitialAggregation == false) {
+                    result = context.collapse(result, result.schema(), result.value());
+                }
+                result = context.eval(result, new Literal(source(), null, DataType.DOUBLE));
+                return result.with(new Filter(source(), result.plan(), Literal.FALSE), result.schema(), result.value());
+            }
             var skipAllFilter = new Filter(source(), result.plan(), Literal.FALSE);
             var nullGrouping = new Values(source(), new Literal(source(), null, DataType.DOUBLE));
             IntermediateResult skipped = result.with(skipAllFilter, result.schema(), result.value());
